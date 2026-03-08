@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Planejamento Financeiro</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+body{margin:0;font-family:Arial;background:#121212;color:white;transition:0.5s;}
+.hidden{display:none;}
+.login{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:#121212;z-index:9999;}
+.login-box{background:#1e1e1e;padding:30px;border-radius:15px;width:300px;text-align:center;}
+.login input{width:100%;padding:10px;margin:10px 0;border:none;border-radius:8px}
+.login button{width:100%;padding:10px;border:none;border-radius:8px;cursor:pointer}
+.entrar{background:#00c853;color:white}
+.top{display:flex;justify-content:space-between;align-items:center;padding:15px;background:#1e1e1e}
+.container{display:flex;padding:20px;gap:20px}
+.sidebar{width:250px;background:#1e1e1e;padding:15px;border-radius:15px;display:flex;flex-direction:column}
+.sidebar button,input[type="date"]{margin:5px 0;padding:10px;border:none;border-radius:8px;cursor:pointer;font-weight:bold}
+.add{background:#00c853;color:white}
+.remove{background:#d50000;color:white}
+.pdf{background:#6a1b9a;color:white}
+.wall{background:#455a64;color:white}
+.pdfExport{background:#00838f;color:white}
+.deleteAll{background:#ff6d00;color:white}
+.sair{background:#1976d2;color:white}
+.main{flex:1;background:#1e1e1e;padding:25px;border-radius:15px;display:flex;gap:40px;align-items:flex-start;}
+.record{padding:6px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;}
+.record-info{flex:1;}
+.edit-btn, .delete-btn{background:none;border:none;color:#fff;cursor:pointer;font-size:16px;margin-left:5px;}
+.edit-btn:hover{color:#00e676}
+.delete-btn:hover{color:#ff5252}
+canvas{max-width:250px}
+#graficoPequeno{max-width:180px;margin-top:20px}
+#saldo{font-weight:bold;margin-left:20px}
+</style>
+</head>
+<body>
+
+<div id="loginLayer" class="login">
+  <div class="login-box">
+    <h2>Área Restrita</h2>
+    <input type="text" id="loginUser" placeholder="Usuário">
+    <input type="password" id="loginPass" placeholder="Senha">
+    <button class="entrar" onclick="login()">Entrar</button>
+  </div>
+</div>
+
+<div id="panelLayer" class="hidden">
+<div class="top">
+  <h2>Planejamento Financeiro <span id="saldo"></span></h2>
+  <span id="clock"></span>
+</div>
+
+<div class="container">
+  <div class="sidebar">
+    <input type="date" id="calendario" onchange="filtrarPorData()">
+    <button class="add" onclick="addEntrada()">Adicionar Entrada</button>
+    <button class="remove" onclick="addSaida()">Adicionar Saída</button>
+    <button class="pdf" onclick="adicionarComprovante()">Adicionar PDF</button>
+    <button class="pdfExport" onclick="exportarPDF()">Exportar PDF</button>
+    <button class="wall" onclick="alterarWallpaper()">Papel de Parede</button>
+    <button class="deleteAll" onclick="limparTudo()">Limpar Tudo</button>
+    <button class="sair" onclick="logout()">Sair</button>
+  </div>
+
+  <div class="main">
+    <div>
+      <canvas id="grafico"></canvas>
+      <canvas id="graficoPequeno"></canvas>
+    </div>
+    <div style="flex:1">
+      <div id="lista"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+let registros = JSON.parse(localStorage.getItem("registros")) || [];
+let chart, chartSmall;
+let dataSelecionada = null;
+
+/* PAPEL DE PAREDE */
+let wallpaperSalvo = localStorage.getItem("wallpaper");
+if (wallpaperSalvo) {
+  document.body.style.backgroundImage = "url(" + wallpaperSalvo + ")";
+  document.body.style.backgroundSize = "cover";
+  document.body.style.backgroundPosition = "center";
+  document.body.style.backgroundAttachment = "fixed";
+}
+
+/* RELOGIO */
+setInterval(() => {
+  let el = document.getElementById("clock");
+  if (el) el.innerText = new Date().toLocaleString("pt-BR");
+}, 1000);
+
+/* LOGIN */
+function login(){
+  let u=document.getElementById("loginUser").value;
+  let p=document.getElementById("loginPass").value;
+  if(u==="arthurgus" && p==="cadssgensedmqev"){
+    localStorage.setItem("logado","sim");
+    document.getElementById("loginLayer").style.display="none";
+    document.getElementById("panelLayer").classList.remove("hidden");
+  } else alert("Login incorreto");
+}
+if(localStorage.getItem("logado")==="sim"){
+  document.getElementById("loginLayer").style.display="none";
+  document.getElementById("panelLayer").classList.remove("hidden");
+}
+function logout(){ localStorage.removeItem("logado"); location.reload(); }
+
+/* DATA LOCAL */
+function getDataLocal(){
+  const hoje=new Date();
+  const dia=String(hoje.getDate()).padStart(2,'0');
+  const mes=String(hoje.getMonth()+1).padStart(2,'0');
+  const ano=hoje.getFullYear();
+  return `${ano}-${mes}-${dia}`;
+}
+
+/* ÍCONES POR DESCRIÇÃO */
+function getIcon(desc){
+  desc=desc.toLowerCase();
+  if(desc.includes("água")) return "💧";
+  if(desc.includes("internet")) return "📶";
+  if(desc.includes("luz")) return "💡";
+  if(desc.includes("alimentação")||desc.includes("mercado")) return "🍎";
+  if(desc.includes("transporte")) return "🚌";
+  return "💰";
+}
+
+/* PAPEL DE PAREDE */
+function alterarWallpaper(){
+  let input=document.createElement("input"); input.type="file"; input.accept="image/*";
+  input.onchange=function(event){
+    let file=event.target.files[0]; if(!file) return;
+    let reader=new FileReader();
+    reader.onload=function(e){
+      let img=e.target.result;
+      document.body.style.backgroundImage="url("+img+")";
+      document.body.style.backgroundSize="cover";
+      document.body.style.backgroundPosition="center";
+      document.body.style.backgroundAttachment="fixed";
+      localStorage.setItem("wallpaper",img);
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+
+/* SALVAR E ATUALIZAR */
+function salvar(){
+  localStorage.setItem("registros",JSON.stringify(registros));
+  mostrar(); // Atualiza a lista e gráficos imediatamente
+}
+
+/* REGISTROS */
+function addEntrada(){
+  let v=parseFloat(prompt("Valor entrada:"));
+  if(isNaN(v)||v<=0) return alert("Valor inválido!");
+  let d=prompt("Descrição:"); if(!d) return alert("Descrição obrigatória!");
+  registros.push({tipo:"Entrada",valor:v,desc:d,data:getDataLocal()});
+  salvar();
+}
+function addSaida(){
+  let v=parseFloat(prompt("Valor saída:"));
+  if(isNaN(v)||v<=0) return alert("Valor inválido!");
+  let d=prompt("Descrição:"); if(!d) return alert("Descrição obrigatória!");
+  registros.push({tipo:"Saída",valor:v,desc:d,data:getDataLocal()});
+  salvar();
+}
+function adicionarComprovante(){
+  let input=document.createElement("input"); input.type="file"; input.accept="application/pdf";
+  input.onchange=function(event){
+    let file=event.target.files[0]; if(!file) return;
+    let reader=new FileReader();
+    reader.onload=function(e){
+      let valor=parseFloat(prompt("Insira o valor do PDF:",0));
+      if(isNaN(valor)) valor=0;
+      registros.push({tipo:"Comprovante",valor:valor,desc:file.name,data:getDataLocal(),pdf:e.target.result});
+      salvar();
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+function abrirPDF(base64){ const link=document.createElement("a"); link.href=base64; link.target="_blank"; link.click(); }
+
+/* FILTRO E LIMPAR */
+function filtrarPorData(){ 
+  dataSelecionada=document.getElementById("calendario").value; 
+  mostrar(); 
+}
+function limparTudo(){ 
+  if(confirm("Deseja apagar tudo?")){ registros=[]; salvar(); } 
+}
+
+/* EDITAR / APAGAR */
+function editarRegistro(index){
+  let r=registros[index];
+  
+  let novoValor=parseFloat(prompt("Editar valor:",r.valor));
+  if(isNaN(novoValor)||novoValor<0) return;
+  
+  let novaDesc=prompt("Editar descrição/nome:",r.desc);
+  if(!novaDesc) return;
+
+  let novaData=prompt("Editar data (YYYY-MM-DD):",r.data);
+  if(!/^(\d{4})-(\d{2})-(\d{2})$/.test(novaData)) {
+    alert("Data inválida! Use o formato YYYY-MM-DD.");
+    return;
+  }
+
+  r.valor=novoValor;
+  r.desc=novaDesc;
+  r.data=novaData;
+
+  salvar();
+}
+function apagarRegistro(index){ if(confirm("Deseja apagar este registro?")){ registros.splice(index,1); salvar(); } }
+
+/* MOSTRAR LISTA */
+function mostrar(){
+  let div=document.getElementById("lista"); div.innerHTML="";
+  
+  // Lista filtrada por dia
+  let filtroData = dataSelecionada || getDataLocal();
+  let listaFiltrada = registros
+    .map((r,i)=>({...r, idx:i})) // adiciona índice real do registro
+    .filter(r=>r.data===filtroData);
+
+  listaFiltrada.forEach((r)=>{
+    let item=document.createElement("div"); item.className="record";
+
+    item.innerHTML=`
+      <div class="record-info">
+        ${r.data} - ${r.tipo} - ${r.desc} - R$ ${r.valor.toFixed(2)}
+        ${r.pdf?`<br><button onclick="abrirPDF('${r.pdf}')">📎 Ver PDF</button>`:""}
+      </div>
+      <div>
+        <button class="edit-btn" title="Editar" onclick="editarRegistro(${r.idx})">✏️</button>
+        <button class="delete-btn" title="Apagar" onclick="apagarRegistro(${r.idx})">🗑️</button>
+      </div>
+    `;
+    div.appendChild(item);
+  });
+
+  // Saldo total acumulado
+  let entradaTotal = registros.filter(r=>r.tipo==="Entrada").reduce((a,b)=>a+b.valor,0);
+  let saidaTotal = registros.filter(r=>r.tipo==="Saída").reduce((a,b)=>a+b.valor,0);
+  document.getElementById("saldo").innerText=`Saldo: R$ ${(entradaTotal - saidaTotal).toFixed(2)}`;
+
+  grafico(listaFiltrada);
+}
+
+/* GRÁFICOS COM ÍCONES */
+function grafico(lista){
+  if(chart) chart.destroy(); if(chartSmall) chartSmall.destroy();
+  let valores=lista.length? lista.map(r=>r.valor) : [];
+  let cores=lista.length? lista.map(r=>r.tipo==="Entrada"?"#00e676":"#ff5252") : [];
+  let labels=lista.length? lista.map(r=>getIcon(r.desc)+" "+r.desc) : [];
+
+  chart=new Chart(document.getElementById("grafico"),{
+    type:"doughnut",
+    data:{labels:labels,datasets:[{data:valores,backgroundColor:cores}]},
+    options:{plugins:{legend:{position:"bottom"}}}
+  });
+
+  chartSmall=new Chart(document.getElementById("graficoPequeno"),{
+    type:"bar",
+    data:{labels:labels,datasets:[{data:valores,backgroundColor:cores}]},
+    options:{plugins:{legend:{display:false}}}
+  });
+}
+
+/* EXPORTAR PDF */
+function exportarPDF(){
+  const { jsPDF } = window.jspdf;
+  let doc=new jsPDF();
+  doc.text("Relatório Financeiro",20,20);
+  let y=35;
+  registros.forEach(r=>{
+    doc.text(`${r.data} - ${r.tipo} - ${r.desc} - R$ ${r.valor.toFixed(2)}`,20,y); y+=8;
+    if(y>270){doc.addPage();y=20;}
+  });
+  doc.addPage();
+  let canvas=document.getElementById("grafico");
+  let imgData=canvas.toDataURL("image/png");
+  doc.text("Gráfico Financeiro",20,20);
+  doc.addImage(imgData,"PNG",20,30,160,120);
+  doc.save("relatorio_financeiro.pdf");
+}
+
+mostrar();
+</script>
+</body>
+</html>
